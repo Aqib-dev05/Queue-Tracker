@@ -18,9 +18,9 @@ const DEMO_PEOPLE = [
   { name: "Ayesha Khan", cnic: "61101-1000006-6", phone: "0300-1000006", type: "motorcycle", reg: "ICT-1006", make: "Honda", model: "CG 125", color: "Blue" },
 ];
 
-// POST /api/seed
-// Header:  x-seed-secret: <SEED_SECRET from .env>
-// Body (optional): { "reset": true }  removes the demo data first.
+// GET or POST /api/seed
+// Browser:  /api/seed?secret=<SEED_SECRET>          (add &reset=true to remove demo data first)
+// API tool: header x-seed-secret: <SEED_SECRET>, optional body { "reset": true }
 //
 // Creates the admin account (from ADMIN_EMAIL / ADMIN_PASSWORD in .env), demo
 // users (password: demo12345), one vehicle each, and one token each for today.
@@ -30,17 +30,19 @@ async function seed(req, res) {
   const secret = process.env.SEED_SECRET;
   if (!secret) return res.status(404).json({ error: "Not found." });
 
-  const sent = Buffer.from(String(req.get("x-seed-secret") || ""));
+  // The secret can come from the browser URL (?secret=...) or the x-seed-secret header.
+  const sent = Buffer.from(String(req.query.secret || req.get("x-seed-secret") || ""));
   const wanted = Buffer.from(secret);
   if (sent.length !== wanted.length || !crypto.timingSafeEqual(sent, wanted)) {
-    return res.status(401).json({ error: "Wrong or missing x-seed-secret header." });
+    return res.status(401).json({ error: "Wrong or missing secret. Use ?secret=<SEED_SECRET>." });
   }
 
   const dateKey = todayKey();
   const body = req.body || {};
+  const reset = body.reset === true || req.query.reset === "true";
   let removed = 0;
 
-  if (body.reset) {
+  if (reset) {
     const demoUsers = await User.find({ email: { $regex: `${DEMO_DOMAIN.replaceAll(".", "\\.")}$` } }, "_id");
     const ids = demoUsers.map((u) => u._id);
     await QueueToken.deleteMany({ owner: { $in: ids } });

@@ -42,6 +42,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/queue", queueRoutes);
 app.use("/api/admin", adminRoutes);
+app.get("/api/seed", seed); // GET so it can be opened straight from the browser
 app.post("/api/seed", seed);
 
 app.use((req, res) => res.status(404).json({ error: "Not found." }));
