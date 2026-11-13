@@ -7,6 +7,7 @@ const { Server } = require("socket.io");
 const connectDB = require("./config/db");
 const ensureAdmin = require("./config/admin");
 const { getStatus } = require("./controllers/queueController");
+const seed = require("./controllers/seedController");
 
 const authRoutes = require("./routes/auth.routes");
 const vehicleRoutes = require("./routes/vehicle.routes");
@@ -41,6 +42,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/queue", queueRoutes);
 app.use("/api/admin", adminRoutes);
+app.post("/api/seed", seed);
 
 app.use((req, res) => res.status(404).json({ error: "Not found." }));
 

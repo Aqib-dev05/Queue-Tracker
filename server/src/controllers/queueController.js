@@ -26,6 +26,26 @@ async function broadcast(req) {
   req.app.get("io").emit("queue:update", await getStatus());
 }
 
+// Hands out the next number for today. $inc is atomic, so two people can
+// never get the same number.
+async function createToken(ownerId, vehicle) {
+  const dateKey = todayKey();
+  const seq = await DailySequence.findOneAndUpdate(
+    { dateKey },
+    { $inc: { lastSequence: 1 } },
+    { upsert: true, new: true }
+  );
+
+  const prefix = PREFIX_BY_TYPE[vehicle.type] || "MC";
+  return QueueToken.create({
+    owner: ownerId,
+    vehicle: vehicle._id,
+    dateKey,
+    sequenceNumber: seq.lastSequence,
+    tokenCode: `${prefix}-${String(seq.lastSequence).padStart(3, "0")}`,
+  });
+}
+
 function decorateToken(token, status) {
   const active = token.status === "waiting" || token.status === "serving";
   const state = active && token.dateKey !== status.dateKey ? "expired" : token.status;
@@ -68,21 +88,7 @@ async function issueToken(req, res) {
     return res.json({ token: decorateToken(existing, await getStatus()), reused: true });
   }
 
-  // $inc is atomic, so two people can never get the same number.
-  const seq = await DailySequence.findOneAndUpdate(
-    { dateKey },
-    { $inc: { lastSequence: 1 } },
-    { upsert: true, new: true }
-  );
-
-  const prefix = PREFIX_BY_TYPE[vehicle.type] || "MC";
-  const token = await QueueToken.create({
-    owner: req.userId,
-    vehicle: vehicle._id,
-    dateKey,
-    sequenceNumber: seq.lastSequence,
-    tokenCode: `${prefix}-${String(seq.lastSequence).padStart(3, "0")}`,
-  });
+  const token = await createToken(req.userId, vehicle);
   await token.populate("vehicle");
 
   await broadcast(req);
@@ -155,4 +161,4 @@ async function callNext(req, res) {
   return res.json({ status: await getStatus() });
 }
 
-module.exports = { getStatus, publicStatus, issueToken, myTokens, cancelToken, adminQueue, callNext };
+module.exports = { todayKey, getStatus, broadcast, createToken, publicStatus, issueToken, myTokens, cancelToken, adminQueue, callNext };

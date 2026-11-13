@@ -7,7 +7,7 @@ async function ensureAdmin() {
   const password = process.env.ADMIN_PASSWORD;
   if (!email || !password) {
     console.log("[admin] ADMIN_EMAIL / ADMIN_PASSWORD not set - skipping admin setup");
-    return;
+    return null;
   }
 
   try {
@@ -27,9 +27,11 @@ async function ensureAdmin() {
     }
     await admin.save();
     console.log(`[admin] ready: ${email}`);
+    return email;
   } catch (err) {
     // Never stop the whole API because of admin setup.
     console.error("[admin] setup failed:", err.message);
+    return null;
   }
 }
 
