@@ -14,19 +14,19 @@ queueskip/
 └── client/     Next.js 14 (App Router) + Tailwind CSS frontend
 ```
 
-## How the queue logic works
+## How the queue works
 
-Instead of a background job nudging a counter forward, "now serving" is
-computed on read: given when the office opened, how many counters are open,
-and the average minutes per vehicle (both configurable in `server/.env`), the
-API derives which ticket number should currently be serving. Your position
-in line is just `your ticket number − now serving`.
+Every day starts a fresh queue. Pulling a token gives the next number (001, 002, ...).
+"Now serving" is **controlled by the admin**: each press of *Call next token* in
+the admin panel moves it forward by one. The new number is pushed to every open
+browser with **Socket.io**, so the home page, *My tokens* and the admin panel
+all update instantly, with no refresh. (A refetch every 2 minutes is only a safety net.)
 
 ## 1. Backend setup
 
 ```bash
 cd server
-cp .env.example .env      # then edit JWT_SECRET and MONGODB_URI if needed
+cp .env.example .env      # then set JWT_SECRET, ADMIN_EMAIL and ADMIN_PASSWORD
 npm install
 npm run dev                # starts on http://localhost:5000
 ```
@@ -40,6 +40,9 @@ docker run -d -p 27017:27017 --name queueskip-mongo mongo:7
 Or use a free MongoDB Atlas cluster and paste its connection string into
 `MONGODB_URI`.
 
+The admin account is created automatically from `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` every time the server starts.
+
 ## 2. Frontend setup
 
 ```bash
@@ -52,18 +55,25 @@ npm run dev                # starts on http://localhost:3000
 ## 3. Try it out
 
 1. Open http://localhost:3000 and create an account.
-2. Add a vehicle from the dashboard.
-3. Pull a token — you'll get a ticket like `MC-014`.
-4. Visit **My tokens** to see your live position, estimated wait, and cancel
-   if needed. Positions refresh automatically every 20 seconds.
+2. Add a vehicle from the dashboard, then pull a token (e.g. `MC-003`).
+3. In another browser window, sign in with the admin email and password. You land on the admin panel.
+4. Press **Call next token**. The home page board and your ticket update live.
 
-## Notes on the demo tech choices
+## Deploying
 
-- **Auth**: email/password with bcrypt hashing + JWT, no third-party auth
-  provider required.
+The client (Netlify) and the API must be hosted separately, and the API host
+must support WebSockets (Render, Railway, Fly.io, a VPS, ...).
+
+- Client: set `NEXT_PUBLIC_API_URL` to `https://<your-api-host>/api`.
+  Without it the site tries `localhost:5000` and login cannot work.
+- Server: set `CLIENT_ORIGIN` to your Netlify URL (several allowed, comma separated),
+  plus `MONGODB_URI`, `JWT_SECRET`, `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+
+## Notes
+
+- **Auth**: email/password with bcrypt hashing + JWT. The admin role is stored
+  in the database and checked on every admin request. Signing up can never create an admin.
 - **Photos**: the schema has a `profilePhotoUrl` / vehicle photo field ready
-  to wire up to any object storage (S3, Cloudinary, etc.) — file upload isn't
+  to wire up to any object storage (S3, Cloudinary, etc.). File upload isn't
   implemented in this prototype.
-- **Queue simulation**: throughput (`AVG_SERVICE_MINUTES`, `COUNTERS_OPEN`)
-  and office hours (9am–5pm, in `queueController.js`) are just constants you
-  can tune to model a real center.
+- **Estimated wait**: people ahead x `AVG_SERVICE_MINUTES` (set in `server/.env`).

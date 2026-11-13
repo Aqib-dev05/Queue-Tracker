@@ -1,11 +1,11 @@
 const mongoose = require("mongoose");
 
-// One sequence counter per calendar day, mimicking a physical ticket
-// dispenser at the registration center.
+// One document per day. lastSequence = last token handed out,
+// nowServing = token the counter is currently calling (admin moves it forward).
 const dailySequenceSchema = new mongoose.Schema({
-  dateKey: { type: String, required: true, unique: true }, // e.g. "2026-08-01"
+  dateKey: { type: String, required: true, unique: true }, // e.g. "2026-11-13"
   lastSequence: { type: Number, default: 0 },
-  windowOpensAt: { type: Date, required: true }, // office start time for that day
+  nowServing: { type: Number, default: 0 },
 });
 
 const queueTokenSchema = new mongoose.Schema(

@@ -19,12 +19,20 @@ export default function Navbar() {
         <nav className="flex items-center gap-5 text-sm">
           {!loading && user && (
             <>
-              <Link href="/dashboard" className="text-ink/80 hover:text-ink transition-colors">
-                Dashboard
-              </Link>
-              <Link href="/queue" className="text-ink/80 hover:text-ink transition-colors">
-                My tokens
-              </Link>
+              {user.role === "admin" ? (
+                <Link href="/admin" className="font-600 text-teal hover:text-teal-dark transition-colors">
+                  Admin panel
+                </Link>
+              ) : (
+                <>
+                  <Link href="/dashboard" className="text-ink/80 hover:text-ink transition-colors">
+                    Dashboard
+                  </Link>
+                  <Link href="/queue" className="text-ink/80 hover:text-ink transition-colors">
+                    My tokens
+                  </Link>
+                </>
+              )}
               <span className="hidden sm:inline text-slate">{user.fullName.split(" ")[0]}</span>
               <button
                 onClick={logout}

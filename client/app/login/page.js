@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, useRedirectIfSignedIn } from "@/lib/auth-context";
 
 export default function LoginPage() {
   const { login } = useAuth();
+  useRedirectIfSignedIn();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -29,6 +30,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-md px-5 py-14">
+      <div className="bg-white border border-ink/10 rounded-2xl p-7 sm:p-8 shadow-[0_16px_40px_-20px_rgba(20,36,32,0.35)]">
       <h1 className="font-display text-3xl font-700">Welcome back</h1>
       <p className="text-slate mt-2">Sign in to check your queue position.</p>
 
@@ -73,6 +75,7 @@ export default function LoginPage() {
           Create an account
         </Link>
       </p>
+      </div>
     </div>
   );
 }

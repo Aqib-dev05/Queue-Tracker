@@ -15,6 +15,7 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: true, trim: true },
     passwordHash: { type: String, required: true },
     profilePhotoUrl: { type: String, default: null },
+    role: { type: String, enum: ["user", "admin"], default: "user" },
   },
   { timestamps: true }
 );
@@ -36,6 +37,7 @@ userSchema.methods.toPublicJSON = function () {
     email: this.email,
     phone: this.phone,
     profilePhotoUrl: this.profilePhotoUrl,
+    role: this.role,
     createdAt: this.createdAt,
   };
 };

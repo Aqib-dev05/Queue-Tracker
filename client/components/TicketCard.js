@@ -1,17 +1,19 @@
 "use client";
 
-const STATUS_LABEL = {
+export const STATUS_LABEL = {
   waiting: "Waiting",
   serving: "Now serving",
   completed: "Completed",
   cancelled: "Cancelled",
+  expired: "Expired",
 };
 
-const STATUS_COLOR = {
+export const STATUS_COLOR = {
   waiting: "text-amber-dark bg-amber/15",
   serving: "text-teal bg-teal/15",
   completed: "text-slate bg-slate/10",
   cancelled: "text-rust bg-rust/10",
+  expired: "text-slate bg-slate/10",
 };
 
 export default function TicketCard({ token, onCancel, rotate = true }) {
@@ -58,10 +60,11 @@ export default function TicketCard({ token, onCancel, rotate = true }) {
         </div>
       </div>
 
-      {!token.officeIsOpen && token.status === "waiting" && (
-        <p className="px-6 pb-4 text-xs text-rust">
-          The counter is closed right now — your token carries over to the next opening.
-        </p>
+      {token.status === "serving" && (
+        <p className="px-6 pb-4 text-sm font-600 text-teal">It&rsquo;s your turn. Go to the counter now.</p>
+      )}
+      {token.status === "expired" && (
+        <p className="px-6 pb-4 text-xs text-slate">This token was for an earlier day. Pull a new one.</p>
       )}
 
       {onCancel && (token.status === "waiting" || token.status === "serving") && (

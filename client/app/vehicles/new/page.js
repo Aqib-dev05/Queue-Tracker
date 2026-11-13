@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
+import { useRequireAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 
 const initialForm = {
@@ -16,15 +16,11 @@ const initialForm = {
 };
 
 export default function NewVehiclePage() {
-  const { user, loading } = useAuth();
+  const user = useRequireAuth();
   const router = useRouter();
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!loading && !user) router.push("/login");
-  }, [loading, user, router]);
 
   function update(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -44,7 +40,7 @@ export default function NewVehiclePage() {
     }
   }
 
-  if (loading || !user) return null;
+  if (!user) return null;
 
   return (
     <div className="mx-auto max-w-md px-5 py-12">

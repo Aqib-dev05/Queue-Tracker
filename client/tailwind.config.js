@@ -21,6 +21,8 @@ module.exports = {
           light: "#8A968F",
         },
       },
+      // The pages use font-600 / font-700, so these weights must exist.
+      fontWeight: { 400: "400", 500: "500", 600: "600", 700: "700" },
       fontFamily: {
         display: ["var(--font-space-grotesk)", "sans-serif"],
         body: ["var(--font-inter)", "sans-serif"],

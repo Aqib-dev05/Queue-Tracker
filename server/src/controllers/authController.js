@@ -9,8 +9,10 @@ function signToken(user) {
 
 async function register(req, res) {
   try {
-    const { fullName, cnic, email, phone, password, profilePhotoUrl } = req.body;
+    const { fullName, cnic, phone, password, profilePhotoUrl } = req.body;
+    const email = (req.body.email || "").toLowerCase().trim();
 
+    // role is never read from the request, so nobody can sign up as admin.
     if (!fullName || !cnic || !email || !phone || !password) {
       return res.status(400).json({ error: "All fields are required." });
     }
@@ -45,7 +47,7 @@ async function login(req, res) {
       return res.status(400).json({ error: "Email and password are required." });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user || !(await user.checkPassword(password))) {
       return res.status(401).json({ error: "Incorrect email or password." });
     }

@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
+import { useRequireAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 
 export default function DashboardPage() {
-  const { user, loading } = useAuth();
+  const user = useRequireAuth();
   const router = useRouter();
   const [vehicles, setVehicles] = useState([]);
   const [busyId, setBusyId] = useState(null);
@@ -15,14 +15,11 @@ export default function DashboardPage() {
   const [fetching, setFetching] = useState(true);
 
   useEffect(() => {
-    if (!loading && !user) router.push("/login");
-  }, [loading, user, router]);
-
-  useEffect(() => {
     if (!user) return;
     api
       .listVehicles()
       .then(({ vehicles }) => setVehicles(vehicles))
+      .catch((err) => setError(err.message))
       .finally(() => setFetching(false));
   }, [user]);
 
@@ -39,7 +36,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading || !user) return null;
+  if (!user) return null;
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-12">

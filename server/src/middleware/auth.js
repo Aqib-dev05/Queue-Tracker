@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
@@ -17,4 +18,14 @@ function requireAuth(req, res, next) {
   }
 }
 
-module.exports = { requireAuth };
+// Use after requireAuth. The role is read from the database, not the token,
+// so removing someone's admin access takes effect immediately.
+async function requireAdmin(req, res, next) {
+  const user = await User.findById(req.userId);
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access only." });
+  }
+  next();
+}
+
+module.exports = { requireAuth, requireAdmin };

@@ -27,6 +27,9 @@ export default function RootLayout({ children }) {
         <AuthProvider>
           <Navbar />
           <main className="flex-1">{children}</main>
+          <footer className="border-t border-ink/10 py-6 text-center text-xs text-slate">
+            QueueSkip is a prototype and is not affiliated with any traffic police department.
+          </footer>
         </AuthProvider>
       </body>
     </html>

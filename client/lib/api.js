@@ -1,6 +1,8 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+// Socket.io lives on the same server, just without the /api part.
+export const SOCKET_URL = API_BASE.replace(/\/api\/?$/, "");
 
-function getToken() {
+export function getToken() {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem("queueskip_token");
 }
@@ -18,15 +20,22 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("Cannot reach the server. Check your connection and try again.");
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || "Something went wrong.");
+    const err = new Error(data.error || "Something went wrong.");
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
@@ -40,8 +49,11 @@ export const api = {
   createVehicle: (payload) => request("/vehicles", { method: "POST", body: payload }),
   deleteVehicle: (id) => request(`/vehicles/${id}`, { method: "DELETE" }),
 
+  queueStatus: () => request("/queue/status", { auth: false }),
   issueToken: (vehicleId) => request("/queue/tokens", { method: "POST", body: { vehicleId } }),
   listTokens: () => request("/queue/tokens"),
-  getToken: (id) => request(`/queue/tokens/${id}`),
   cancelToken: (id) => request(`/queue/tokens/${id}/cancel`, { method: "POST" }),
+
+  adminQueue: () => request("/admin/queue"),
+  adminNext: () => request("/admin/next", { method: "POST" }),
 };

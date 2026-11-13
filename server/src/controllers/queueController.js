@@ -1,155 +1,158 @@
 const { QueueToken, DailySequence } = require("../models/QueueToken");
 const Vehicle = require("../models/Vehicle");
 
-const OFFICE_OPEN_HOUR = 9;
-const OFFICE_CLOSE_HOUR = 17;
-
 const PREFIX_BY_TYPE = { motorcycle: "MC", car: "CR", rickshaw: "RK" };
+const AVG_SERVICE_MINUTES = Number(process.env.AVG_SERVICE_MINUTES || 4);
 
-function dateKeyFor(date) {
-  return date.toISOString().slice(0, 10); // YYYY-MM-DD (UTC-based demo key)
+// Queue resets every day, using Pakistan local date (not UTC).
+function todayKey() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Karachi" });
 }
 
-function officeOpensAt(date) {
-  const d = new Date(date);
-  d.setHours(OFFICE_OPEN_HOUR, 0, 0, 0);
-  return d;
+// Today's queue numbers: what the counter is calling and how many are waiting.
+async function getStatus() {
+  const dateKey = todayKey();
+  const seq = await DailySequence.findOneAndUpdate(
+    { dateKey },
+    { $setOnInsert: { lastSequence: 0, nowServing: 0 } },
+    { upsert: true, new: true }
+  );
+  const waiting = await QueueToken.countDocuments({ dateKey, status: "waiting" });
+  return { dateKey, nowServing: seq.nowServing, lastIssued: seq.lastSequence, waiting };
 }
 
-async function getOrCreateDailySequence(now) {
-  const dateKey = dateKeyFor(now);
-  let seq = await DailySequence.findOne({ dateKey });
-  if (!seq) {
-    seq = await DailySequence.create({
-      dateKey,
-      lastSequence: 0,
-      windowOpensAt: officeOpensAt(now),
-    });
-  }
-  return seq;
+// Push the latest numbers to every connected browser.
+async function broadcast(req) {
+  req.app.get("io").emit("queue:update", await getStatus());
 }
 
-// Simulates counter throughput without needing a cron job: given how many
-// minutes the office has been open and how fast counters serve people,
-// derive which ticket number is "now serving" right now.
-function computeNowServing(seq, now) {
-  const avgServiceMinutes = Number(process.env.AVG_SERVICE_MINUTES || 4);
-  const countersOpen = Number(process.env.COUNTERS_OPEN || 3);
-  const ratePerMinute = countersOpen / avgServiceMinutes;
-
-  const opensAt = new Date(seq.windowOpensAt);
-  const closesAt = new Date(opensAt);
-  closesAt.setHours(OFFICE_CLOSE_HOUR, 0, 0, 0);
-
-  if (now < opensAt) return { nowServing: 0, isOpen: false, opensAt, closesAt };
-  const cappedNow = now > closesAt ? closesAt : now;
-  const elapsedMinutes = (cappedNow - opensAt) / 60000;
-  const nowServing = Math.min(seq.lastSequence, Math.floor(elapsedMinutes * ratePerMinute) + 1);
-
-  return { nowServing: Math.max(nowServing, 0), isOpen: now <= closesAt, opensAt, closesAt };
-}
-
-function estimateWaitMinutes(position) {
-  const avgServiceMinutes = Number(process.env.AVG_SERVICE_MINUTES || 4);
-  const countersOpen = Number(process.env.COUNTERS_OPEN || 3);
-  return Math.max(0, Math.round((position * avgServiceMinutes) / countersOpen));
-}
-
-async function decorateToken(token) {
-  const seq = await getOrCreateDailySequence(new Date(token.issuedAt));
-  const now = new Date();
-  const { nowServing, isOpen, opensAt, closesAt } = computeNowServing(seq, now);
-  const position = Math.max(token.sequenceNumber - nowServing, 0);
-
-  let status = token.status;
-  if (status === "waiting" && token.sequenceNumber <= nowServing) {
-    status = position === 0 ? "serving" : "waiting";
-  }
+function decorateToken(token, status) {
+  const active = token.status === "waiting" || token.status === "serving";
+  const state = active && token.dateKey !== status.dateKey ? "expired" : token.status;
+  const peopleAhead = state === "waiting" ? Math.max(token.sequenceNumber - status.nowServing, 0) : 0;
 
   return {
     id: token._id,
     tokenCode: token.tokenCode,
-    status,
+    status: state,
     sequenceNumber: token.sequenceNumber,
-    nowServing,
-    peopleAhead: position,
-    estimatedWaitMinutes: estimateWaitMinutes(position),
-    officeIsOpen: isOpen,
-    opensAt,
-    closesAt,
+    nowServing: status.nowServing,
+    peopleAhead,
+    estimatedWaitMinutes: peopleAhead * AVG_SERVICE_MINUTES,
     issuedAt: token.issuedAt,
     vehicle: token.vehicle,
   };
 }
 
+// ---------- public ----------
+
+async function publicStatus(req, res) {
+  return res.json({ status: await getStatus() });
+}
+
+// ---------- signed-in users ----------
+
 async function issueToken(req, res) {
-  try {
-    const { vehicleId } = req.body;
-    const vehicle = await Vehicle.findOne({ _id: vehicleId, owner: req.userId });
-    if (!vehicle) return res.status(404).json({ error: "Vehicle not found on your account." });
+  const vehicle = await Vehicle.findOne({ _id: req.body.vehicleId, owner: req.userId });
+  if (!vehicle) return res.status(404).json({ error: "Vehicle not found on your account." });
 
-    const now = new Date();
-    const dateKey = dateKeyFor(now);
+  const dateKey = todayKey();
 
-    const existing = await QueueToken.findOne({
-      vehicle: vehicle._id,
-      dateKey,
-      status: { $in: ["waiting", "serving"] },
-    }).populate("vehicle");
-    if (existing) {
-      const decorated = await decorateToken(existing);
-      return res.status(200).json({ token: decorated, reused: true });
-    }
-
-    const seq = await getOrCreateDailySequence(now);
-    seq.lastSequence += 1;
-    await seq.save();
-
-    const prefix = PREFIX_BY_TYPE[vehicle.type] || "MC";
-    const tokenCode = `${prefix}-${String(seq.lastSequence).padStart(3, "0")}`;
-
-    const token = await QueueToken.create({
-      owner: req.userId,
-      vehicle: vehicle._id,
-      dateKey,
-      sequenceNumber: seq.lastSequence,
-      tokenCode,
-      issuedAt: now,
-    });
-    await token.populate("vehicle");
-
-    const decorated = await decorateToken(token);
-    return res.status(201).json({ token: decorated, reused: false });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Could not issue a queue token." });
+  // One active token per vehicle per day.
+  const existing = await QueueToken.findOne({
+    vehicle: vehicle._id,
+    dateKey,
+    status: { $in: ["waiting", "serving"] },
+  }).populate("vehicle");
+  if (existing) {
+    return res.json({ token: decorateToken(existing, await getStatus()), reused: true });
   }
+
+  // $inc is atomic, so two people can never get the same number.
+  const seq = await DailySequence.findOneAndUpdate(
+    { dateKey },
+    { $inc: { lastSequence: 1 } },
+    { upsert: true, new: true }
+  );
+
+  const prefix = PREFIX_BY_TYPE[vehicle.type] || "MC";
+  const token = await QueueToken.create({
+    owner: req.userId,
+    vehicle: vehicle._id,
+    dateKey,
+    sequenceNumber: seq.lastSequence,
+    tokenCode: `${prefix}-${String(seq.lastSequence).padStart(3, "0")}`,
+  });
+  await token.populate("vehicle");
+
+  await broadcast(req);
+  return res.status(201).json({ token: decorateToken(token, await getStatus()), reused: false });
 }
 
 async function myTokens(req, res) {
-  const tokens = await QueueToken.find({ owner: req.userId })
-    .sort({ issuedAt: -1 })
-    .limit(20)
-    .populate("vehicle");
-
-  const decorated = await Promise.all(tokens.map(decorateToken));
-  return res.json({ tokens: decorated });
-}
-
-async function getToken(req, res) {
-  const token = await QueueToken.findOne({ _id: req.params.id, owner: req.userId }).populate("vehicle");
-  if (!token) return res.status(404).json({ error: "Token not found." });
-  const decorated = await decorateToken(token);
-  return res.json({ token: decorated });
+  const tokens = await QueueToken.find({ owner: req.userId }).sort({ issuedAt: -1 }).limit(20).populate("vehicle");
+  const status = await getStatus();
+  return res.json({ tokens: tokens.map((t) => decorateToken(t, status)), status });
 }
 
 async function cancelToken(req, res) {
   const token = await QueueToken.findOne({ _id: req.params.id, owner: req.userId });
   if (!token) return res.status(404).json({ error: "Token not found." });
+  if (token.status !== "waiting" && token.status !== "serving") {
+    return res.status(400).json({ error: "This token is already closed." });
+  }
+
   token.status = "cancelled";
   token.completedAt = new Date();
   await token.save();
+
+  await broadcast(req);
   return res.json({ ok: true });
 }
 
-module.exports = { issueToken, myTokens, getToken, cancelToken };
+// ---------- admin ----------
+
+// Today's status plus every token issued today, for the admin panel.
+async function adminQueue(req, res) {
+  const status = await getStatus();
+  const tokens = await QueueToken.find({ dateKey: status.dateKey })
+    .sort({ sequenceNumber: 1 })
+    .populate("vehicle", "registrationNumber make model")
+    .populate("owner", "fullName phone");
+
+  return res.json({
+    status,
+    tokens: tokens.map((t) => ({
+      id: t._id,
+      tokenCode: t.tokenCode,
+      sequenceNumber: t.sequenceNumber,
+      status: t.status,
+      vehicle: t.vehicle,
+      owner: t.owner,
+    })),
+  });
+}
+
+// Move the counter forward by one. The filter makes sure it never passes the
+// last issued token, even if the button is double-clicked.
+async function callNext(req, res) {
+  const dateKey = todayKey();
+  const seq = await DailySequence.findOneAndUpdate(
+    { dateKey, $expr: { $lt: ["$nowServing", "$lastSequence"] } },
+    { $inc: { nowServing: 1 } },
+    { new: true }
+  );
+  if (!seq) return res.status(400).json({ error: "No tokens are waiting." });
+
+  // Previous token is done, the new one is now being served.
+  await QueueToken.updateOne(
+    { dateKey, sequenceNumber: seq.nowServing - 1, status: "serving" },
+    { status: "completed", completedAt: new Date() }
+  );
+  await QueueToken.updateOne({ dateKey, sequenceNumber: seq.nowServing, status: "waiting" }, { status: "serving" });
+
+  await broadcast(req);
+  return res.json({ status: await getStatus() });
+}
+
+module.exports = { getStatus, publicStatus, issueToken, myTokens, cancelToken, adminQueue, callNext };
